@@ -43,7 +43,7 @@ module ThreadAttrAccessor
     end
   end
 
-  def thread_attr_writer(*names, private: false, **opts)
+  def thread_attr_writer(*names, private: false)
     mod = const_get(:ThreadAttributeAccessors)
 
     names.each do |name|
@@ -59,7 +59,7 @@ module ThreadAttrAccessor
     end
   end
 
-  def thread_attr_reader(*names, default: nil, inherit: false, private: false, **opts)
+  def thread_attr_reader(*names, default: nil, inherit: false, private: false)
     if default && inherit
       get_default = ->(thread_key) {
         ThreadAttrAccessor.search_in_ancestor_threads(thread_key) ||
@@ -96,8 +96,11 @@ module ThreadAttrAccessor
     end
   end
 
-  def thread_attr_accessor(*names, **opts)
-    thread_attr_reader(*names, **opts)
-    thread_attr_writer(*names, **opts)
+  def thread_attr_accessor(*names, private: false, **opts)
+    private_reader = private.to_s == "reader" || private == true
+    private_writer = private.to_s == "writer" || private == true
+
+    thread_attr_reader(*names, private: private_reader, **opts)
+    thread_attr_writer(*names, private: private_writer, **opts)
   end
 end
