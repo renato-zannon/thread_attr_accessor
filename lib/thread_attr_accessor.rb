@@ -27,7 +27,7 @@ module ThreadAttrAccessor
   def self.search_in_ancestor_threads(key)
     ancestor = Thread.current.parent_thread
 
-    until ancestor.nil? || (ancestor_value = ancestor[key])
+    until ancestor.nil? || (ancestor_value = ancestor.thread_variable_get(key))
       ancestor = ancestor.parent_thread
     end
 
@@ -73,11 +73,12 @@ module ThreadAttrAccessor
 
     if get_default
       get_value = ->(thread_key) {
-        if Thread.current.thread_variable?(thread_key)
-          Thread.current.thread_variable_get(thread_key)
+        if value = Thread.current.thread_variable_get(thread_key)
+          value
         else
           default_value = get_default.call(thread_key)
           Thread.current.thread_variable_set(thread_key, default_value)
+          default_value
         end
       }
     else
