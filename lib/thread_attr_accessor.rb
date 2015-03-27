@@ -1,5 +1,9 @@
+require 'fiber'
+
 require_relative "thread_attr_accessor/version"
 require_relative 'core_ext/thread/parent_thread'
+require_relative 'core_ext/fiber/parent_fiber'
+require_relative 'core_ext/fiber/storage'
 
 # `extend` this module on your class/module to get per-thread class attribute
 # accessors. Example:
@@ -24,14 +28,75 @@ module ThreadAttrAccessor
     "#{base.name}.#{name}"
   end
 
-  def self.search_in_ancestor_threads(key)
-    ancestor = Thread.current.parent_thread
-
-    until ancestor.nil? || (ancestor_value = ancestor.thread_variable_get(key))
-      ancestor = ancestor.parent_thread
+  class FiberStorage
+    attr_reader :fiber, :thread
+    def initialize(fiber = Fiber.current, thread = Thread.current)
+      @fiber  = fiber
+      @thread = thread
     end
 
-    ancestor_value
+    def [](key)
+      fiber.fiber_variable_get(key)
+    end
+
+    def []=(key, value)
+      fiber.fiber_variable_set(key, value)
+      if fiber.parent_fiber.nil?
+        thread.thread_variable_set(key, value)
+      end
+
+      value
+    end
+
+    def has_key?(key)
+      fiber.fiber_variable?(key)
+    end
+  end
+
+  class ThreadStorage
+    attr_reader :thread
+    def initialize(thread)
+      @thread = thread
+    end
+
+    def [](key)
+      thread.thread_variable_get(key)
+    end
+
+    def []=(key, value)
+      thread.thread_variable_set(key, value)
+    end
+
+    def has_key?(key)
+      !!thread.thread_variable_get(key)
+    end
+  end
+
+  def self.search_in_ancestor_threads(key)
+    fiber  = Fiber.current
+    thread = Thread.current
+
+    until fiber.nil?
+      storage = FiberStorage.new(fiber, thread)
+
+      if storage.has_key?(key)
+        return storage[key]
+      else
+        fiber = fiber.parent_fiber
+      end
+    end
+
+    until thread.nil?
+      storage = ThreadStorage.new(thread)
+
+      if storage.has_key?(key)
+        return storage[key]
+      else
+        thread = thread.parent_thread
+      end
+    end
+
+    nil
   end
 
   def self.extended(base)
@@ -50,7 +115,8 @@ module ThreadAttrAccessor
       thread_key = ThreadAttrAccessor.thread_accessor_key(self, name)
 
       mod.send(:define_method, "#{name}=") do |value|
-        Thread.current.thread_variable_set(thread_key, value)
+        FiberStorage.new[thread_key] = value
+        value
       end
 
       if private
@@ -73,17 +139,12 @@ module ThreadAttrAccessor
 
     if get_default
       get_value = ->(thread_key) {
-        if value = Thread.current.thread_variable_get(thread_key)
-          value
-        else
-          default_value = get_default.call(thread_key)
-          Thread.current.thread_variable_set(thread_key, default_value)
-          default_value
-        end
+        storage = FiberStorage.new
+        storage[thread_key] ||= get_default.call(thread_key)
       }
     else
       get_value = ->(thread_key) {
-        Thread.current.thread_variable_get(thread_key)
+        FiberStorage.new[thread_key]
       }
     end
 
