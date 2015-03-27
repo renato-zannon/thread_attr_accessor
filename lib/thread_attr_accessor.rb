@@ -50,7 +50,7 @@ module ThreadAttrAccessor
       thread_key = ThreadAttrAccessor.thread_accessor_key(self, name)
 
       mod.send(:define_method, "#{name}=") do |value|
-        Thread.current[thread_key] = value
+        Thread.current.thread_variable_set(thread_key, value)
       end
 
       if private
@@ -73,11 +73,16 @@ module ThreadAttrAccessor
 
     if get_default
       get_value = ->(thread_key) {
-        Thread.current[thread_key] ||= get_default.call(thread_key)
+        if Thread.current.thread_variable?(thread_key)
+          Thread.current.thread_variable_get(thread_key)
+        else
+          default_value = get_default.call(thread_key)
+          Thread.current.thread_variable_set(thread_key, default_value)
+        end
       }
     else
       get_value = ->(thread_key) {
-        Thread.current[thread_key]
+        Thread.current.thread_variable_get(thread_key)
       }
     end
 
